@@ -1,50 +1,84 @@
-# Welcome to your Expo app 👋
+# MakutaShare 💰
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+MakutaShare est une application de gestion financière familiale et multi-locataire. Conçue initialement pour permettre à un chef de famille (Manager) de distribuer, suivre et gérer les dépenses de ses proches (Membres) via un système de portefeuilles virtuels (enveloppes) et d'approbations de fonds.
 
-## Get started
+## ✨ Fonctionnalités Principales
 
-1. Install dependencies
+*   **Gestion Multi-Portefeuilles :** Le Manager possède un solde global et alloue des fonds dans des sous-portefeuilles spécifiques pour chaque membre (ex: Transport, Frais académiques, Nourriture).
+*   **Flux d'Approbation :** Les membres peuvent émettre des demandes de fonds (Transactions "PENDING") que le Manager peut approuver ou rejeter depuis son tableau de bord.
+*   **Séparation des Rôles :** Interface et droits distincts entre le `MANAGER` (qui invite et finance) et le `MEMBER` (qui dépense et demande).
+*   **Historique et Traçabilité :** Suivi détaillé de chaque mouvement financier (Dépôt, Retrait, Transfert).
 
-   ```bash
-   npm install
-   ```
+*(À venir : Mode hors-ligne avec WatermelonDB et intégration des paiements Mobile Money via pawaPay/FlexPay).*
 
-2. Start the app
+## 🛠️ Stack Technique
 
-   ```bash
-   npx expo start
-   ```
+Ce projet est divisé en deux parties principales : une application mobile (Frontend) et une API (Backend).
 
-In the output, you'll find options to open the app in a
+### Application Mobile (Frontend)
+*   **Framework :** React Native avec [Expo](https://expo.dev/)
+*   **Langage :** TypeScript
+*   **Gestionnaire de paquets :** Yarn (recommandé pour la stabilité réseau)
+*   **UI/Composants :** NativeWind / StyleSheet
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### API & Base de données (Backend)
+*   **Framework :** [Next.js](https://nextjs.org/) (App Router / API Routes)
+*   **Langage :** TypeScript
+*   **Base de données :** PostgreSQL ou MySQL
+*   **ORM :** [Prisma](https://www.prisma.io/)
+*   **Authentification :** [Better Auth](https://better-auth.com/)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## 🚀 Installation et Lancement
 
-When you're ready, run:
+### 1. Prérequis
+Assurez-vous d'avoir installé sur votre machine :
+*   Node.js (v18+)
+*   Yarn (`npm install -g yarn`)
+*   L'application **Expo Go** sur votre téléphone (Android/iOS) ou un émulateur configuré.
+
+### 2. Configuration du Back-end (Next.js)
+
+#### Prebuild peut être utilisé en tapant: 
 
 ```bash
-npm run reset-project
+npx expo prebuild
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Pour générer les dossiers natifs (android, ios) et d'autres fichiers de configuration.  
 
-## Learn more
+#### Utilisation avancée
 
-To learn more about developing your project with Expo, look at the following resources:
+Si vous voulez prébuilder uniquement pour iOS, android ou aucun : 
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npx expo prebuild --platform ios # ios
+npx expo prebuild --platform android # android
+npx expo prebuild --platform none # aucun
+```
 
-## Join the community
+##### Utilisation avec les commandes d'exécution Expo CLI
 
-Join our community of developers creating universal apps.
+Vous pouvez effectuer une construction native localement en exécutant : 
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npx expo run:android
+npx expo run:ios
+```
+
+## Démarrer l'application
+
+Pour démarrer l'application, vous pouvez utiliser la commande suivante : 
+
+```bash 
+npx expo start
+```
+
+#### Nettoyage du projet
+
+Parfois il peut arriver que des fichiers ne soient pas supprimés, vous pouvez les supprimer manuellement en tapant la commande suivante :
+
+```bash
+npx expo reset-project
+```

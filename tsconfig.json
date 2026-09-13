@@ -5,6 +5,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@your-org/auth-rn": [
+        "./lib/better-auth-rn/packages/auth-rn/src"
+      ],
+      "@your-org/auth-rn/*": [
+        "./lib/better-auth-rn/packages/auth-rn/src/*"
       ]
     }
   },
@@ -12,6 +18,11 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "expo-env.d.ts",
+    "nativewind-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "lib/better-auth-rn/demo-app"
   ]
 }
