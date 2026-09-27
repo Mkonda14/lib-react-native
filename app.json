@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "makuta-share",
-    "slug": "makuta-share",
+    "name": "lib-react-native",
+    "slug": "lib-react-native",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "makutashare",
+    "scheme": "libreactnative",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.makutashare"
+      "bundleIdentifier": "com.anonymous.libreactnative"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.makutashare"
+      "package": "com.anonymous.libreactnative"
     },
     "web": {
       "bundler": "metro",

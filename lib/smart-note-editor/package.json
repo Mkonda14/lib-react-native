@@ -1,0 +1,33 @@
+{
+  "name": "@your-org/smart-note-editor",
+  "version": "1.0.0",
+  "description": "Complete markdown editor for React Native — live rendering, formatting toolbar, undo/redo, AI streaming, auto-save",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@expensify/react-native-live-markdown": ">=0.1.0",
+    "react": ">=18.0.0",
+    "react-native": ">=0.74.0"
+  },
+  "optionalDependencies": {
+    "@react-native-async-storage/async-storage": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@expensify/react-native-live-markdown": "^0.1.339",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
+}

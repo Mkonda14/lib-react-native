@@ -11,6 +11,12 @@
       ],
       "@your-org/auth-rn/*": [
         "./lib/better-auth-rn/packages/auth-rn/src/*"
+      ],
+      "@your-org/osm-leaflet-rn": [
+        "./lib/osm-leaflet-rn/src"
+      ],
+      "@your-org/osm-leaflet-rn/*": [
+        "./lib/osm-leaflet-rn/src/*"
       ]
     }
   },

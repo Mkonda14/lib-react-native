@@ -1,5 +1,5 @@
 import { BottomTabBarAdapter } from "@/components/ui/bottom-tabs";
-import { Home, Search, User } from "lucide-react-native";
+import { Home, Search, User, MapPin } from "lucide-react-native";
 import { Tabs } from "expo-router";
 
 export default function TabsLayout() {
@@ -34,6 +34,15 @@ export default function TabsLayout() {
           title: "Profil",
           tabBarIcon: ({ color, size }) => (
             <User color={color} size={size} strokeWidth={1.75} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="map-test"
+        options={{
+          title: "Carte",
+          tabBarIcon: ({ color, size }) => (
+            <MapPin color={color} size={size} strokeWidth={1.75} />
           ),
         }}
       />
