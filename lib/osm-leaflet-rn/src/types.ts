@@ -20,6 +20,7 @@
 
 import type { ReactNode } from 'react'
 import type { ViewStyle, StyleProp } from 'react-native'
+import type { MarkerVariant } from './marker-variants'
 
 /* ------------------------------------------------------------------ *
  * Primitives géographiques
@@ -61,6 +62,14 @@ export interface MarkerData<T = unknown> {
   id: string
   /** Position géographique du marqueur. */
   position: LatLng
+  /**
+   * Variante visuelle (anglais : 'pharmacy', 'hospital', 'hotel'…) :
+   * génère automatiquement `iconHtml` / `iconSize` / `iconAnchor`
+   * (couleur sémantique + pictogramme). Ignorée si `iconHtml` est fourni.
+   */
+  variant?: MarkerVariant
+  /** Surcharge de la couleur du pin de la variante (hex). */
+  iconColor?: string
   /** HTML personnalisé pour l'icône (remplace le pin par défaut). */
   iconHtml?: string
   /** Taille de l'icône en pixels. */
@@ -216,11 +225,6 @@ export interface RectangleData {
 export type TileProvider =
   | 'osm-standard'
   | 'osm-hot'
-  | 'carto-light'
-  | 'carto-dark'
-  | 'carto-voyager'
-  | 'stamen-terrain'
-  | 'stamen-toner'
   | 'esri-satellite'
   | 'esri-streets'
   | 'opentopomap'
@@ -285,6 +289,13 @@ export interface MapConfig {
   }[]
   /** Activer le regroupement des marqueurs (clustering). */
   clustering?: boolean | ClusterConfig
+  /**
+   * HTML custom des clusters — token `{count}` remplacé par le nombre de
+   * marqueurs groupés (ex : `'<b>{count}</b>'`). Chaîne : contrairement à un
+   * callback, elle traverse le bridge JSON jusqu'à la WebView.
+   * Init-only (comme `clustering`) : changer après montage n'a aucun effet.
+   */
+  clusterIconHtml?: string
   /** Configuration de la position de l'utilisateur. */
   userLocation?: boolean | UserLocationConfig
   /** Afficher la boussole. */
@@ -319,7 +330,10 @@ export interface ClusterConfig {
   maxClusterRadius?: number
   /** Options des polylignes du spiderfy. */
   spiderLegPolylineOptions?: Record<string, unknown>
-  /** Constructeur d'icône personnalisé pour les clusters. */
+  /**
+   * @deprecated Ne peut pas fonctionner (fonction non sérialisable dans le
+   * bridge JSON) — utiliser `MapConfig.clusterIconHtml` (token `{count}`).
+   */
   clusterIconBuilder?: (count: number) => string
 }
 
@@ -327,11 +341,14 @@ export interface ClusterConfig {
 export interface UserLocationConfig {
   /** Activer la haute précision GPS (consomme plus de batterie). */
   enableHighAccuracy?: boolean
-  /** Âge maximum d'une position en millisecondes. */
+  /** Âge maximum d'une position en millisecondes (position en cache, via getLastKnownPositionAsync). */
   maximumAge?: number
-  /** Délai d'attente maximum en millisecondes. */
+  /** Délai d'attente maximum en millisecondes (legacy WebView, ignoré par expo-location). */
   timeout?: number
-  /** Suivre la position en continu (watchPosition). */
+  /**
+   * Suivre la position en continu (watchPositionAsync via expo-location).
+   * false = position unique (getCurrentPositionAsync).
+   */
   watch?: boolean
   /** Afficher le cercle de précision. */
   showAccuracy?: boolean
@@ -341,8 +358,21 @@ export interface UserLocationConfig {
   pulsate?: boolean
   /** Suivre l'utilisateur (recentrer la carte à chaque déplacement). */
   followUser?: boolean
-  /** Position simulée pour le mode développement (sans GPS réel). */
+  /**
+   * Position simulée (mode dev, sans GPS réel).
+   * Sans valeur explicite, le mode dev injecte DEFAULT_LOCATION
+   * ({ lat: -4.368708586536611, lng: 15.289138329917593 }).
+   * En production, la position réelle vient de expo-location.
+   */
   mockLocation?: LatLng
+  /** Afficher le cône d'orientation/boussole magnétomètre (Google Maps style). Par défaut: true si userLocation est actif. */
+  showHeading?: boolean
+  /**
+   * Cap simulé (uniquement avec mockLocation, mode dev) :
+   * - 'auto' : rotation lente continue du cône (démo sans magnétomètre)
+   * - number : angle fixe en degrés (0 = Nord)
+   */
+  mockHeading?: 'auto' | number
 }
 
 /* ------------------------------------------------------------------ *
@@ -437,6 +467,10 @@ export interface MapRef {
   addCircle: (circle: CircleData) => void
   /** Supprimer un cercle. */
   removeCircle: (id: string) => void
+  /** Ajouter un rectangle. */
+  addRectangle: (rectangle: RectangleData) => void
+  /** Supprimer un rectangle par son identifiant. */
+  removeRectangle: (id: string) => void
   /** Ouvrir le popup d'un marqueur. */
   openPopup: (markerId: string) => void
   /** Fermer le popup ouvert. */
@@ -445,9 +479,16 @@ export interface MapRef {
   setTileLayer: (provider: TileProvider | string) => void
   /** Activer/désactiver une couche de superposition. */
   toggleLayer: (layerId: string, enabled: boolean) => void
-  /** Localiser l'utilisateur (géolocalisation). */
+  /**
+   * Localiser l'utilisateur : recentre sur la position connue (pastille déjà
+   * affichée) ou, si `config.userLocation` est actif, démarre le suivi.
+   * Sans `config.userLocation` : acquisition ponctuelle via expo-location
+   * puis recentrage (échec → onError).
+   */
   locate: () => void
-  /** Arrêter la localisation. */
+  /** Définir manuellement l'orientation/cap (en degrés 0-360) sur le marqueur utilisateur. */
+  setHeading: (heading: number | null) => void
+  /** Arrêter le suivi de position (la pastille reste affichée). */
   stopLocate: () => void
   /** Forcer le redessin de la carte (après resize). */
   redraw: () => void
@@ -496,8 +537,8 @@ export interface MapViewProps {
   onMarkerPress?: <T = unknown>(e: MarkerPressEvent<T>) => void
   /** Appelé quand un marqueur est déplacé (drag). */
   onMarkerDrag?: (markerId: string, position: LatLng) => void
-  /** Appelé quand la position de l'utilisateur est mise à jour. */
-  onUserLocationChange?: (location: LatLng, accuracy: number) => void
+  /** Appelé quand la position de l'utilisateur est mise à jour. `heading` = cap en degrés (0 = Nord) si disponible. */
+  onUserLocationChange?: (location: LatLng, accuracy: number, heading?: number | null) => void
   /** Appelé quand la couche de tuiles est changée. */
   onTileLayerChange?: (provider: TileProvider | string) => void
   /** Appelé quand une erreur survient. */
@@ -509,7 +550,10 @@ export interface MapViewProps {
   renderMarker?: (marker: MarkerData) => string
   /** Rendu personnalisé du contenu de la bottom sheet pour un marqueur. */
   renderMarkerDetail?: (marker: MarkerData) => ReactNode
-  /** Rendu personnalisé de l'icône de cluster. */
+  /**
+   * @deprecated Ne peut pas fonctionner (callback RN non sérialisable dans
+   * le bridge JSON) — utiliser `MapConfig.clusterIconHtml` (token `{count}`).
+   */
   renderClusterIcon?: (count: number) => string
   /** Rendu personnalisé d'un callout (bulle au-dessus d'un marqueur). */
   renderCallout?: (marker: MarkerData) => ReactNode
@@ -556,6 +600,30 @@ export interface BottomSheetProps {
   showHandle?: boolean
   /** Poignée personnalisée. */
   renderHandle?: () => ReactNode
+}
+
+/* ------------------------------------------------------------------ *
+ * Popover « Type de carte » (sélecteur de fond de carte)
+ * ------------------------------------------------------------------ */
+
+/** Props du composant LayerPickerPopover (grille 3 colonnes). */
+export interface LayerPickerPopoverProps {
+  /** Popover affiché (animé à l'ouverture/fermeture). */
+  visible: boolean
+  /** Identifiant de la couche actuellement sélectionnée. */
+  activeProvider?: string
+  /** Liste des couches affichées (défaut : tous les providers hors « custom »). */
+  providers?: string[]
+  /** Appelé quand l'utilisateur choisit une couche. */
+  onSelect?: (provider: string) => void
+  /** Mode sombre. */
+  isDark?: boolean
+  /** Sens d'ouverture : vers le haut (popover au-dessus des boutons) ou vers le bas. */
+  direction?: 'top' | 'bottom'
+  /** Titre de l'en-tête (défaut : « Type de carte »). */
+  title?: string
+  /** Style d'ancrage du panneau (géré par le parent). */
+  style?: StyleProp<ViewStyle>
 }
 
 /* ------------------------------------------------------------------ *

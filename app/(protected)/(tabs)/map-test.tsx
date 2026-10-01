@@ -26,7 +26,11 @@ import type {
 // Sample data
 // ---------------------------------------------------------------------------
 
-const PARIS: LatLng = { lat: 48.8566, lng: 2.3522 };
+const KINSHASA: LatLng = { lat: -4.368694, lng: 15.289146 };
+
+/** Minuscules sans accents — comparaison souple pour les suggestions. */
+const normalizeText = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 const INITIAL_MARKERS: MarkerData<{
   title: string;
@@ -35,64 +39,56 @@ const INITIAL_MARKERS: MarkerData<{
   rating: string;
 }>[] = [
   {
-    id: "tour-eiffel",
-    position: { lat: 48.8584, lng: 2.2945 },
-    iconHtml: getMarkerIconHtml("pin", "#EA4335", 36),
-    iconSize: { width: 36, height: 50 },
-    iconAnchor: { x: 18, y: 50 },
+    id: "echangeur",
+    position: { lat: -4.374205439098188, lng: 15.345256066542532 },
+    variant: "transit",
     data: {
-      title: "Tour Eiffel",
-      description: "Monument emblématique de Paris, haut de 330 mètres.",
-      category: "Monument historique",
+      title: "Echangeur de Limete",
+      description: "Echangeur de Limete, un échangeur à Kinshasa.",
+      category: "Echangeur",
       rating: "4.8",
     },
   },
   {
     id: "notre-dame",
-    position: { lat: 48.853, lng: 2.3499 },
-    iconHtml: getMarkerIconHtml("pin", "#1A73E8", 34),
-    iconSize: { width: 34, height: 48 },
-    iconAnchor: { x: 17, y: 48 },
+    position: { lat: -4.323684724535177, lng: 15.2948701027723 },
+    variant: "religious",
     data: {
-      title: "Notre-Dame de Paris",
+      title: "Notre-Dame du Congo",
       description: "Cathédrale gothique du XIIe siècle, en cours de restauration.",
       category: "Édifice religieux",
       rating: "4.7",
     },
   },
   {
-    id: "sacre-coeur",
-    position: { lat: 48.8867, lng: 2.3431 },
-    iconHtml: getMarkerIconHtml("star", "#FBBC04", 34),
-    iconSize: { width: 34, height: 34 },
-    iconAnchor: { x: 17, y: 17 },
+    id: "palais-du-peuple",
+    position: { lat: -4.332254016261837, lng: 15.303109848950628 },
+    variant: "building",
     data: {
-      title: "Sacré-Cœur",
-      description: "Basilique romano-byzantine dominant Montmartre.",
-      category: "Basilique",
+      title: "Palais du peuple",
+      description: "Palais du peuple, un palais à Kinshasa.",
+      category: "Palais",
       rating: "4.9",
     },
   },
   {
-    id: "louvre",
-    position: { lat: 48.8606, lng: 2.3376 },
-    iconHtml: getMarkerIconHtml("square", "#34A853", 32),
-    iconSize: { width: 32, height: 32 },
-    iconAnchor: { x: 16, y: 16 },
+    id: "maison-culture",
+    position: { lat: -4.325529819004345, lng: 15.299596097129218 },
+    variant: "museum",
     data: {
-      title: "Musée du Louvre",
-      description: "Plus grand musée du monde, 35 000 œuvres exposées.",
-      category: "Musée d'art",
+      title: "Maison de la culture",
+      description: "Maison de la culture, un édifice à Kinshasa.",
+      category: "Maison de la culture",
       rating: "4.8",
     },
   },
 ];
 
 const ROUTE_POSITIONS: LatLng[] = [
-  { lat: 48.8584, lng: 2.2945 },
-  { lat: 48.86, lng: 2.32 },
-  { lat: 48.8606, lng: 2.3376 },
-  { lat: 48.853, lng: 2.3499 },
+  { lat: -4.374205439098188, lng: 15.345256066542532 },
+  { lat: -4.323684724535177, lng: 15.2948701027723 },
+  { lat: -4.332254016261837, lng: 15.303109848950628 },
+  { lat: -4.325529819004345, lng: 15.299596097129218 },
 ];
 
 export default function MapTestScreen() {
@@ -106,18 +102,12 @@ export default function MapTestScreen() {
 
   const [selectedMarker, setSelectedMarker] = useState<MarkerData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [lastEvent, setLastEvent] = useState<string | null>(null);
 
   // ---- Event handlers ---------------------------------------------------
-
-  const handleMapReady = useCallback(() => {
-    setLastEvent("Carte Google Maps prête");
-  }, []);
 
   const handleMapClick = useCallback((e: MapClickEvent) => {
     // Clic simple : ferme le modal de détails s'il est ouvert (comportement Google Maps)
     setSelectedMarker(null);
-    setLastEvent(`Clic: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
   }, []);
 
   const handleMapLongPress = useCallback(
@@ -139,7 +129,6 @@ export default function MapTestScreen() {
       };
       addMarker(newM);
       setSelectedMarker(newM);
-      setLastEvent(`Repère placé: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
     },
     [addMarker]
   );
@@ -150,32 +139,34 @@ export default function MapTestScreen() {
       position: e.position,
       data: e.data,
     } as MarkerData);
-    setLastEvent(`Marqueur: ${e.data?.title ?? e.markerId}`);
   }, []);
 
   const handleCategorySelect = useCallback(
     (cat: CategoryChip) => {
-      setLastEvent(`Filtre: ${cat.label}`);
       if (cat.id === "attractions") {
-        map.flyTo({ lat: 48.8584, lng: 2.2945 }, 15);
+        map.flyTo(INITIAL_MARKERS[0].position, 15);
       }
     },
     [map]
   );
 
-  const handleFlyToEiffel = () => {
-    map.flyTo({ lat: 48.8584, lng: 2.2945 }, 16, { duration: 1.2 });
+  const handleFlyToEchangeur = () => {
+    map.flyTo({ lat: -4.374205439098188, lng: 15.345256066542532 }, 16, { duration: 1.2 });
   };
 
-  const handleFlyToSacréCoeur = () => {
-    map.flyTo({ lat: 48.8867, lng: 2.3431 }, 16, { duration: 1.2 });
+  const handleFlyToNotreDame = () => {
+    map.flyTo({ lat: -4.323684724535177, lng: 15.2948701027723 }, 16, { duration: 1.2 });
   };
 
   const handleFitAll = () => {
+    // Fit sur les 4 marqueurs de la démo (l'ancienne bounding box Paris
+    // était héritée d'une autre démo).
+    const lats = INITIAL_MARKERS.map((m) => m.position.lat);
+    const lngs = INITIAL_MARKERS.map((m) => m.position.lng);
     map.fitBounds(
       {
-        northEast: { lat: 48.89, lng: 2.36 },
-        southWest: { lat: 48.85, lng: 2.29 },
+        northEast: { lat: Math.max(...lats) + 0.01, lng: Math.max(...lngs) + 0.01 },
+        southWest: { lat: Math.min(...lats) - 0.01, lng: Math.min(...lngs) - 0.01 },
       },
       { padding: 60, maxZoom: 14, animate: true }
     );
@@ -189,13 +180,119 @@ export default function MapTestScreen() {
         onChangeText={setSearchQuery}
         onCategorySelect={handleCategorySelect}
         isDark={isDark}
+        onFocusedChange={(f) => null
+        }
+        focusedContent={({ query, close }) => {
+          const q = normalizeText(query.trim());
+          const matches = INITIAL_MARKERS.filter(
+            (m) =>
+              !q ||
+              normalizeText(
+                `${m.data?.title ?? ""} ${m.data?.description ?? ""} ${
+                  m.data?.category ?? ""
+                }`
+              ).includes(q)
+          );
+          return (
+            <View
+              style={[
+                styles.suggestPanel,
+                isDark && styles.suggestPanelDark,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.suggestHeader,
+                  isDark && styles.suggestTextDark,
+                ]}
+              >
+                {q ? `Résultats (${matches.length})` : "Suggestions"}
+              </Text>
+
+              {matches.map((m) => (
+                <Pressable
+                  key={m.id}
+                  style={styles.suggestRow}
+                  onPress={() => {
+                    close();
+                    map.flyTo(m.position, 16, { duration: 0.9 });
+                  }}
+                >
+                  <Text style={styles.suggestRowIcon}>📍</Text>
+                  <View style={styles.suggestRowBody}>
+                    <Text
+                      style={[
+                        styles.suggestRowTitle,
+                        isDark && styles.suggestTextDark,
+                      ]}
+                    >
+                      {m.data?.title ?? m.id}
+                    </Text>
+                    <Text style={styles.suggestRowSub}>
+                      {m.data?.category}
+                      {m.data?.description ? ` · ${m.data.description}` : ""}
+                    </Text>
+                  </View>
+                  <Text style={styles.suggestRowChevron}>›</Text>
+                </Pressable>
+              ))}
+
+              {matches.length === 0 && (
+                <Text
+                  style={[
+                    styles.suggestEmpty,
+                    isDark && styles.suggestSubDark,
+                  ]}
+                >
+                  Aucun résultat pour «&nbsp;{query.trim()}&nbsp;»
+                </Text>
+              )}
+
+              <Pressable
+                style={[
+                  styles.suggestFitAll,
+                  isDark && styles.suggestFitAllDark,
+                ]}
+                onPress={() => {
+                  close();
+                  // Fit sur les marqueurs de la démo (handleFitAll historique
+                  // cible une bounding box Paris héritée d'une autre démo).
+                  const lats = INITIAL_MARKERS.map((m) => m.position.lat);
+                  const lngs = INITIAL_MARKERS.map((m) => m.position.lng);
+                  map.fitBounds(
+                    {
+                      northEast: {
+                        lat: Math.max(...lats) + 0.01,
+                        lng: Math.max(...lngs) + 0.01,
+                      },
+                      southWest: {
+                        lat: Math.min(...lats) - 0.01,
+                        lng: Math.min(...lngs) - 0.01,
+                      },
+                    },
+                    { padding: 60, maxZoom: 14, animate: true }
+                  );
+                }}
+              >
+                <Text
+                  style={[
+                    styles.suggestFitAllText,
+                    isDark && styles.suggestFitAllTextDark,
+                  ]}
+                >
+                  ⌖ Tout afficher
+                </Text>
+              </Pressable>
+            </View>
+          );
+        }}
       />
 
       {/* Main Google-style MapView */}
       <MapView
         ref={map.ref}
         config={{
-          center: PARIS,
+          center: KINSHASA,
           zoom: 13,
           tileProvider: isDark ? "osm-hot" : "osm-standard",
           zoomControl: false,
@@ -226,7 +323,7 @@ export default function MapTestScreen() {
         ]}
         fitToMarkers
         showBottomSheetOnPress={false}
-        onMapReady={handleMapReady}
+        onMapReady={() => {}}
         onMapClick={handleMapClick}
         onMapLongPress={handleMapLongPress}
         onMarkerPress={handleMarkerPress}
@@ -255,13 +352,13 @@ export default function MapTestScreen() {
           },
         ]}
       >
-        <Pressable style={styles.pillBtn} onPress={handleFlyToEiffel}>
+        <Pressable style={styles.pillBtn} onPress={handleFlyToEchangeur}>
           <Text style={styles.pillIcon}>🗼</Text>
-          <Text style={[styles.pillText, { color: isDark ? "#E8EAED" : "#202124" }]}>Eiffel</Text>
+          <Text style={[styles.pillText, { color: isDark ? "#E8EAED" : "#202124" }]}>Echangeur</Text>
         </Pressable>
-        <Pressable style={styles.pillBtn} onPress={handleFlyToSacréCoeur}>
+        <Pressable style={styles.pillBtn} onPress={handleFlyToNotreDame}>
           <Text style={styles.pillIcon}>⛪</Text>
-          <Text style={[styles.pillText, { color: isDark ? "#E8EAED" : "#202124" }]}>Sacré-Cœur</Text>
+          <Text style={[styles.pillText, { color: isDark ? "#E8EAED" : "#202124" }]}>Notre Dame</Text>
         </Pressable>
         <Pressable style={styles.pillBtn} onPress={handleFitAll}>
           <Text style={styles.pillIcon}>🔍</Text>
@@ -320,5 +417,104 @@ const styles = StyleSheet.create({
   pillText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  // Chip de retour d'événement (démonstration onFocusedChange)
+  eventChip: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    zIndex: 70,
+  },
+  eventChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  // ---- Slot « suggestions » du GoogleSearchBar (mode focus) ---------------
+  suggestPanel: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    gap: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 12,
+  },
+  suggestPanelDark: {
+    backgroundColor: "#303134",
+  },
+  suggestHeader: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#5F6368",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  suggestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  suggestRowIcon: {
+    fontSize: 18,
+  },
+  suggestRowBody: {
+    flex: 1,
+  },
+  suggestRowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#202124",
+  },
+  suggestRowSub: {
+    fontSize: 12,
+    color: "#5F6368",
+    marginTop: 2,
+  },
+  suggestRowChevron: {
+    fontSize: 20,
+    color: "#9AA0A6",
+  },
+  suggestEmpty: {
+    fontSize: 14,
+    color: "#5F6368",
+    textAlign: "center",
+    paddingVertical: 18,
+  },
+  suggestFitAll: {
+    marginTop: 8,
+    backgroundColor: "#E8F0FE",
+    borderRadius: 20,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  suggestFitAllDark: {
+    backgroundColor: "#1E293B",
+  },
+  suggestFitAllText: {
+    color: "#1A73E8",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  suggestFitAllTextDark: {
+    color: "#8AB4F8",
+  },
+  suggestTextDark: {
+    color: "#E8EAED",
+  },
+  suggestSubDark: {
+    color: "#9AA0A6",
   },
 });

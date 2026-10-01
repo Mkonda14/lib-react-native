@@ -1,7 +1,7 @@
 {
   "name": "@your-org/osm-leaflet-rn",
   "version": "1.0.0",
-  "description": "OpenStreetMap + Leaflet integration for React Native — WebView-based, fully customizable, with clustering, bottom sheet, and 10 tile providers",
+  "description": "OpenStreetMap + Leaflet integration for React Native — WebView-based, fully customizable, with clustering, bottom sheet, and 5 tile providers",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -13,10 +13,13 @@
   },
   "peerDependencies": {
     "expo-haptics": ">=13.0.0",
+    "expo-linear-gradient": ">=13.0.0",
+    "lucide-react-native": ">=0.400.0",
     "react": ">=18.0.0",
     "react-native": ">=0.74.0",
     "react-native-gesture-handler": ">=2.0.0",
     "react-native-reanimated": ">=3.0.0",
+    "react-native-safe-area-context": ">=4.0.0",
     "react-native-webview": ">=13.0.0"
   },
   "devDependencies": {

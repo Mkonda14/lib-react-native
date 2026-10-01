@@ -126,6 +126,11 @@ export default function SignInScreen() {
           Pas encore de compte ? S'inscrire
         </Text>
       </Link>
+      <Link href={"/(protected)/(tabs)" as any} asChild>
+        <Text variant="link" className="mt-6 text-center">
+          Accéder à l'application (test)
+        </Text>
+      </Link>
     </Container>
   );
 }

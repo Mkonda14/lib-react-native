@@ -8,6 +8,7 @@
  */
 
 import type {
+  LatLng,
   TileLayerConfig,
   TileProvider,
   MapConfig,
@@ -36,36 +37,6 @@ export const TILE_PROVIDERS: Record<TileProvider, TileLayerConfig> = {
     maxZoom: 19,
     attribution: '© OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team',
     subdomains: 'abc',
-  },
-  'carto-light': {
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    maxZoom: 20,
-    attribution: '© OpenStreetMap contributors © CARTO',
-    subdomains: 'abcd',
-  },
-  'carto-dark': {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    maxZoom: 20,
-    attribution: '© OpenStreetMap contributors © CARTO',
-    subdomains: 'abcd',
-  },
-  'carto-voyager': {
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    maxZoom: 20,
-    attribution: '© OpenStreetMap contributors © CARTO',
-    subdomains: 'abcd',
-  },
-  'stamen-terrain': {
-    url: 'https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}{r}.jpg',
-    maxZoom: 18,
-    attribution: '© Stadia Maps © Stamen Design © OpenMapTiles © OpenStreetMap contributors',
-    subdomains: 'a-d',
-  },
-  'stamen-toner': {
-    url: 'https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}{r}.jpg',
-    maxZoom: 18,
-    attribution: '© Stadia Maps © Stamen Design © OpenMapTiles © OpenStreetMap contributors',
-    subdomains: 'a-d',
   },
   'esri-satellite': {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -123,12 +94,22 @@ export const DEFAULT_USER_LOCATION_CONFIG: UserLocationConfig = {
 }
 
 /**
+ * Position par défaut injectée comme `mockLocation` en mode développement
+ * (aucun GPS réel requis). Une `mockLocation` explicite dans la config
+ * reste prioritaire sur cette valeur.
+ */
+export const DEFAULT_LOCATION: LatLng = {
+  lat: -4.368708586536611,
+  lng: 15.289138329917593,
+}
+
+/**
  * Configuration par défaut de la carte.
  * Centrée sur Paris, zoom 13, tuiles OSM standards.
  * Toutes les propriétés non spécifiées dans `config` héritent de ces valeurs.
  */
 export const DEFAULT_CONFIG: MapConfig = {
-  center: { lat: 48.8566, lng: 2.3522 }, // Paris
+  center: { lat: -4.390688, lng: 15.288408 }, // Kinshasa
   zoom: 13,
   minZoom: 1,
   maxZoom: 19,
@@ -312,7 +293,7 @@ export function getMarkerIconHtml(
 export function getThemedConfig(theme: 'light' | 'dark'): Partial<MapConfig> {
   return {
     theme,
-    tileProvider: theme === 'dark' ? 'carto-dark' : 'carto-light',
+    tileProvider: 'osm-standard',
     backgroundColor: theme === 'dark' ? '#1F2937' : '#E5E5E5',
     defaultMarkerStyle: {
       color: theme === 'dark' ? '#F87171' : '#DC2626',

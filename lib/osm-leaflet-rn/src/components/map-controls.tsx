@@ -3,19 +3,34 @@
  * =======================================================================
  * Boutons flottants à contraste élevé, responsifs, avec des marges de sécurité
  * dynamiques (useSafeAreaInsets), des icônes vectorielles nettes (lucide-react-native)
- * et adaptabilité claire/sombre.
+ * et adaptabilité clair/sombre.
+ *
+ * Le sélecteur de fond de carte est délégué à `LayerPickerPopover`
+ * (grille 3 colonnes, défini dans bottom-sheet.tsx) :
+ *  - Apparition animée (fade + translate + scale via Reanimated)
+ *  - Fermeture par tap extérieur (backdrop animé, géré ici)
  */
 
 import { Compass, Layers, Minus, Navigation, Plus } from "lucide-react-native";
 import * as React from "react";
-import { Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
+import { Pressable, StyleSheet, View, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { TILE_PROVIDERS } from "../config";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { DEFAULT_CONFIG } from "../config";
+import { LayerPickerPopover } from "../bottom-sheet";
 import type { MapRef, TileProvider } from "../types";
+
+// Pressable animé pour le backdrop (Reanimated exige createAnimatedComponent)
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface MapControlsProps {
   /** Référence de la carte (depuis useMap() ou useRef<MapRef>). */
-  mapRef: React.RefObject<MapRef | null> | React.RefObject<MapRef> | any;
+  mapRef: React.RefObject<MapRef | null> | React.RefObject<MapRef>;
   /** Position des contrôles sur la carte. */
   position?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
   /** Afficher les boutons de zoom (+ / −). */
@@ -56,8 +71,10 @@ export const MapControls: React.FC<MapControlsProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [showLayers, setShowLayers] = React.useState(false);
-  const [activeLayer, setActiveLayer] =
-    React.useState<TileProvider>("carto-light");
+  // Couche active initialisée depuis la config par défaut de la carte
+  const [activeLayer, setActiveLayer] = React.useState<TileProvider>(
+    (DEFAULT_CONFIG.tileProvider as TileProvider) || "osm-standard"
+  );
   const [isLocating, setIsLocating] = React.useState(false);
 
   // Couleurs à contraste élevé
@@ -68,7 +85,23 @@ export const MapControls: React.FC<MapControlsProps> = ({
   // Calcul du décalage bas sécurisé (flotte au-dessus de la barre d'onglets du bas)
   const safeBottom = 84 + Math.max(insets.bottom, 12);
 
-  const positionStyle: ViewStyle = {
+  /* ---------------- Animation du backdrop ---------------- */
+  // Opacité du backdrop (0 fermé → 1 ouvert, multipliée dans le style)
+  const backdrop = useSharedValue(0);
+
+  React.useEffect(() => {
+    const duration = showLayers ? 200 : 150;
+    const easing = Easing.out(Easing.cubic);
+    backdrop.value = withTiming(showLayers ? 1 : 0, { duration, easing });
+  }, [showLayers, backdrop]);
+
+  // Backdrop : fondu jusqu'à 32 % d'opacité
+  const backdropAnimStyle = useAnimatedStyle(() => ({
+    opacity: backdrop.value * 0.32,
+  }));
+
+  /* ---------------- Ancrage dans le coin choisi ---------------- */
+  const anchorStyle: ViewStyle = {
     position: "absolute",
     ...(position === "top-right" && {
       top: Math.max(insets.top, 16) + 70,
@@ -78,9 +111,14 @@ export const MapControls: React.FC<MapControlsProps> = ({
       top: Math.max(insets.top, 16) + 70,
       left: 16,
     }),
-    ...(position === "bottom-right" && { bottom: safeBottom, right: 16 }),
+    ...(position === "bottom-right" && { bottom: safeBottom + 100, right: 16 }),
     ...(position === "bottom-left" && { bottom: safeBottom, left: 16 }),
-    zIndex: 95,
+  };
+
+  // Alignement transversal de la colonne (selon le côté choisi)
+  const anchorAlignment: ViewStyle = {
+    alignItems: position.endsWith("right") ? "flex-end" : "flex-start",
+    gap: 8,
   };
 
   const handleZoomIn = () => mapRef.current?.zoomIn({ animate: true });
@@ -93,172 +131,91 @@ export const MapControls: React.FC<MapControlsProps> = ({
     setTimeout(() => setIsLocating(false), 2500);
   };
 
-  const handleLayerSelect = (provider: TileProvider) => {
-    setActiveLayer(provider);
+  const handleLayerSelect = (provider: string) => {
+    setActiveLayer(provider as TileProvider);
     mapRef.current?.setTileLayer(provider);
     onLayerChange?.(provider);
     setShowLayers(false);
   };
 
   const handleCompassPress = () => {
-    mapRef.current?.moveTo({ lat: 48.8566, lng: 2.3522 }, 13, {
+    // Boussole / Recentrage : revenir à la vue par défaut de la carte
+    // (l'ancien placeholder visait des coordonnées Paris héritées d'une démo).
+    mapRef.current?.moveTo(DEFAULT_CONFIG.center, DEFAULT_CONFIG.zoom, {
       animate: true,
     });
   };
 
+  /* ---------------- Sélecteur de fond de carte ---------------- */
+  const popoverNode = showLayerSwitcher && (
+    <LayerPickerPopover
+      visible={showLayers}
+      activeProvider={activeLayer}
+      onSelect={handleLayerSelect}
+      isDark={isDark}
+      direction={position.startsWith("top") ? "top" : "bottom"}
+      // L'ancrage vertical est géré par le flux (colonnes) : le panneau
+      // se positionne naturellement au-dessus (bottom) / en dessous (top)
+      // des boutons, et aligné transversalement par le parent.
+      style={
+        position.endsWith("right")
+          ? { alignSelf: "flex-end" }
+          : { alignSelf: "flex-start" }
+      }
+    />
+  );
+
   return (
-    <View style={positionStyle} pointerEvents="box-none">
-      {/* Panneau popover du sélecteur de couche */}
-      {showLayerSwitcher && showLayers && (
-        <View
-          style={[
-            styles.layerModal,
-            { backgroundColor: themeBg, borderColor: themeBorderColor },
-          ]}
-        >
-          <View style={styles.layerModalHeader}>
-            <Layers color="#1A73E8" size={18} strokeWidth={2.4} />
-            <Text
-              style={[
-                styles.layerModalTitle,
-                { color: isDark ? "#F8FAFC" : "#0F172A" },
-              ]}
-            >
-              Type de carte
-            </Text>
-          </View>
-          <View style={styles.layerGrid}>
-            {Object.keys(TILE_PROVIDERS)
-              .filter((p) => p !== "custom")
-              .map((provider) => {
-                const isActive = activeLayer === provider;
-                return (
-                  <Pressable
-                    key={provider}
-                    style={({ pressed }) => [
-                      styles.layerCard,
-                      {
-                        backgroundColor: isDark ? "#0F172A" : "#F8FAFC",
-                        borderColor: themeBorderColor,
-                      },
-                      isActive && styles.layerCardActive,
-                      pressed && styles.pressed,
-                    ]}
-                    onPress={() => handleLayerSelect(provider as TileProvider)}
-                  >
-                    <Text style={styles.layerIconBadge}>
-                      {getLayerBadge(provider as TileProvider)}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.layerName,
-                        {
-                          color: isActive
-                            ? "#1A73E8"
-                            : isDark
-                              ? "#F8FAFC"
-                              : "#334155",
-                        },
-                        isActive && { fontWeight: "700" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {formatProviderName(provider as TileProvider)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-          </View>
-        </View>
+    // Racine plein écran : capte le tap extérieur quand ouvert,
+    // laisse passer les touches de la carte quand fermé (box-none)
+    <View
+      style={[StyleSheet.absoluteFill, { zIndex: 95 }]}
+      pointerEvents={showLayers ? "auto" : "box-none"}
+    >
+      {/* Backdrop : ferme le popover en touchant hors du panneau */}
+      {showLayerSwitcher && (
+        <AnimatedPressable
+          style={[StyleSheet.absoluteFill, backdropAnimStyle]}
+          onPress={() => setShowLayers(false)}
+          pointerEvents={showLayers ? "auto" : "none"}
+          accessibilityLabel="Fermer le sélecteur de carte"
+          accessibilityRole="button"
+        />
       )}
 
-      {/* Groupe de boutons d'action flottants empilés */}
-      <View style={styles.buttonColumn} pointerEvents="box-none">
+      {/* Colonne ancrée dans le coin choisi */}
+      <View style={[anchorStyle, anchorAlignment]} pointerEvents="box-none">
+        {/* Positions bottom : popover au-dessus des boutons */}
+        {position.startsWith("bottom") && popoverNode}
 
-        <View  style={[
-              styles.zoomStack, styles.buttonColumn,
-              { backgroundColor: themeBg, borderColor: themeBorderColor },
-            ]} pointerEvents="box-none">
-        {/* Sélecteur de couche */}
-        {showLayerSwitcher && (
-          <ControlButton
-            onPress={() => setShowLayers(!showLayers)}
-            backgroundColor={themeBg}
-            borderColor={themeBorderColor}
-            style={buttonStyle}
-            active={showLayers}
-          >
-            <Layers
-              color={showLayers ? "#1A73E8" : themeIconColor}
-              size={22}
-              strokeWidth={2.4}
-            />
-          </ControlButton>
-        )}
-
-          <View
-              style={[
-                styles.zoomDivider,
-                { backgroundColor: themeBorderColor },
-              ]}
-            />
-
-        {/* Boussole / Recentrage */}
-        {showCompass && (
-          <ControlButton
-            onPress={handleCompassPress}
-            backgroundColor={themeBg}
-            borderColor={themeBorderColor}
-            style={buttonStyle}
-          >
-            <Compass color={themeIconColor} size={22} strokeWidth={2.4} />
-          </ControlButton>
-        )}
-  <View
-              style={[
-                styles.zoomDivider,
-                { backgroundColor: themeBorderColor },
-              ]}
-            />
-        {/* Géolocalisation GPS */}
-        {showLocate && (
-          <ControlButton
-            onPress={handleLocate}
-            backgroundColor={themeBg}
-            borderColor={themeBorderColor}
-            style={buttonStyle}
-            active={isLocating}
-          >
-            <Navigation
-              color={isLocating ? "#1A73E8" : themeIconColor}
-              size={22}
-              strokeWidth={2.4}
-              fill={isLocating ? "#1A73E8" : "transparent"}
-            />
-          </ControlButton>
-        )}
-
-        </View>
-
-        {/* Groupe Zoom (+ / −) */}
-        {showZoom && (
+        {/* Groupe de boutons d'action flottants empilés */}
+        <View style={styles.buttonColumn} pointerEvents="box-none">
           <View
             style={[
               styles.zoomStack,
+              styles.buttonColumn,
               { backgroundColor: themeBg, borderColor: themeBorderColor },
             ]}
+            pointerEvents="box-none"
           >
-            <Pressable
-              style={({ pressed }) => [
-                styles.zoomBtn,
-                pressed && styles.zoomPressed,
-              ]}
-              onPress={handleZoomIn}
-              accessibilityLabel="Zoom avant"
-              accessibilityRole="button"
-            >
-              <Plus color={themeIconColor} size={22} strokeWidth={2.6} />
-            </Pressable>
+            {/* Sélecteur de couche */}
+            {showLayerSwitcher && (
+              <ControlButton
+                onPress={() => setShowLayers(!showLayers)}
+                backgroundColor={themeBg}
+                borderColor={themeBorderColor}
+                style={buttonStyle}
+                active={showLayers}
+                accessibilityLabel="Choisir le type de carte"
+                accessibilityExpanded={showLayers}
+              >
+                <Layers
+                  color={showLayers ? "#1A73E8" : themeIconColor}
+                  size={22}
+                  strokeWidth={2.4}
+                />
+              </ControlButton>
+            )}
 
             <View
               style={[
@@ -267,23 +224,94 @@ export const MapControls: React.FC<MapControlsProps> = ({
               ]}
             />
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.zoomBtn,
-                pressed && styles.zoomPressed,
+            {/* Boussole / Recentrage */}
+            {showCompass && (
+              <ControlButton
+                onPress={handleCompassPress}
+                backgroundColor={themeBg}
+                borderColor={themeBorderColor}
+                style={buttonStyle}
+              >
+                <Compass color={themeIconColor} size={22} strokeWidth={2.4} />
+              </ControlButton>
+            )}
+            <View
+              style={[
+                styles.zoomDivider,
+                { backgroundColor: themeBorderColor },
               ]}
-              onPress={handleZoomOut}
-              accessibilityLabel="Zoom arrière"
-              accessibilityRole="button"
-            >
-              <Minus color={themeIconColor} size={22} strokeWidth={2.6} />
-            </Pressable>
+            />
+            {/* Géolocalisation GPS */}
+            {showLocate && (
+              <ControlButton
+                onPress={handleLocate}
+                backgroundColor={themeBg}
+                borderColor={themeBorderColor}
+                style={buttonStyle}
+                active={isLocating}
+              >
+                <Navigation
+                  color={isLocating ? "#1A73E8" : themeIconColor}
+                  size={22}
+                  strokeWidth={2.4}
+                  fill={isLocating ? "#1A73E8" : "transparent"}
+                />
+              </ControlButton>
+            )}
           </View>
-        )}
+
+          {/* Groupe Zoom (+ / −) */}
+          {showZoom && (
+            <View
+              style={[
+                styles.zoomStack,
+                { backgroundColor: themeBg, borderColor: themeBorderColor },
+              ]}
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.zoomBtn,
+                  pressed && styles.zoomPressed,
+                ]}
+                onPress={handleZoomIn}
+                accessibilityLabel="Zoom avant"
+                accessibilityRole="button"
+              >
+                <Plus color={themeIconColor} size={22} strokeWidth={2.6} />
+              </Pressable>
+
+              <View
+                style={[
+                  styles.zoomDivider,
+                  { backgroundColor: themeBorderColor },
+                ]}
+              />
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.zoomBtn,
+                  pressed && styles.zoomPressed,
+                ]}
+                onPress={handleZoomOut}
+                accessibilityLabel="Zoom arrière"
+                accessibilityRole="button"
+              >
+                <Minus color={themeIconColor} size={22} strokeWidth={2.6} />
+              </Pressable>
+            </View>
+          )}
+        </View>
+
+        {/* Positions top : popover en dessous des boutons */}
+        {position.startsWith("top") && popoverNode}
       </View>
     </View>
   );
 };
+
+/* ------------------------------------------------------------------ *
+ * Bouton de contrôle flottant (rond, état actif bleu)
+ * ------------------------------------------------------------------ */
 
 const ControlButton: React.FC<{
   children: React.ReactNode;
@@ -292,7 +320,18 @@ const ControlButton: React.FC<{
   borderColor?: string;
   style?: ViewStyle;
   active?: boolean;
-}> = ({ children, onPress, backgroundColor, borderColor, style, active }) => (
+  accessibilityLabel?: string;
+  accessibilityExpanded?: boolean;
+}> = ({
+  children,
+  onPress,
+  backgroundColor,
+  borderColor,
+  style,
+  active,
+  accessibilityLabel,
+  accessibilityExpanded,
+}) => (
   <Pressable
     onPress={onPress}
     style={({ pressed }) => [
@@ -305,42 +344,17 @@ const ControlButton: React.FC<{
       pressed && styles.pressed,
       style,
     ]}
+    accessibilityRole="button"
+    accessibilityLabel={accessibilityLabel}
+    accessibilityState={
+      accessibilityExpanded !== undefined
+        ? { expanded: accessibilityExpanded }
+        : undefined
+    }
   >
     {children}
   </Pressable>
 );
-
-function getLayerBadge(p: TileProvider): string {
-  const icons: Record<string, string> = {
-    "osm-standard": "🗺️",
-    "osm-hot": "🔥",
-    "carto-light": "☀️",
-    "carto-dark": "🌙",
-    "carto-voyager": "🧭",
-    "stamen-terrain": "🏔️",
-    "stamen-toner": "🎨",
-    "esri-satellite": "🛰️",
-    "esri-streets": "🏙️",
-    opentopomap: "🗺️",
-  };
-  return icons[p] ?? "🗺️";
-}
-
-function formatProviderName(p: TileProvider): string {
-  const names: Record<string, string> = {
-    "osm-standard": "Standard",
-    "osm-hot": "Humanitaire",
-    "carto-light": "Clair",
-    "carto-dark": "Sombre",
-    "carto-voyager": "Voyager",
-    "stamen-terrain": "Relief",
-    "stamen-toner": "Toner",
-    "esri-satellite": "Satellite",
-    "esri-streets": "Rues",
-    opentopomap: "Topo",
-  };
-  return names[p] ?? p;
-}
 
 const styles = StyleSheet.create({
   buttonColumn: {
@@ -394,57 +408,5 @@ const styles = StyleSheet.create({
     height: 1.5,
     width: 20,
     alignSelf: "center",
-  },
-  layerModal: {
-    position: "absolute",
-    right: 0,
-    bottom: 64,
-    width: 260,
-    borderRadius: 20,
-    padding: 14,
-    borderWidth: 1.5,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 12,
-    zIndex: 200,
-  },
-  layerModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  layerModalTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  layerGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  layerCard: {
-    width: "47%",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    borderWidth: 1,
-  },
-  layerCardActive: {
-    borderColor: "#1A73E8",
-    backgroundColor: "#E8F0FE",
-  },
-  layerIconBadge: {
-    fontSize: 15,
-  },
-  layerName: {
-    fontSize: 12,
-    fontWeight: "500",
-    flex: 1,
   },
 });

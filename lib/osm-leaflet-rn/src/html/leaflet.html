@@ -787,6 +787,20 @@ svg.leaflet-image-layer.leaflet-interactive path {
       border: 2px solid white;
     }
 
+    /* config.theme = 'dark' : chrome sombre (bandeau d'attribution, popups).
+       Les tuiles gèrent leur propre thème via tileProvider (esri-satellite…). */
+    #map.dark .leaflet-control-attribution {
+      background: rgba(32, 33, 36, 0.8);
+      color: #9aa0a6;
+    }
+    #map.dark .leaflet-control-attribution a { color: #8ab4f8; }
+    #map.dark .leaflet-popup-content-wrapper,
+    #map.dark .leaflet-popup-tip {
+      background: #202124;
+      color: #e8eaed;
+    }
+    #map.dark .leaflet-popup-close-button { color: #9aa0a6; }
+
   </style>
 </head>
 <body>
@@ -816,11 +830,21 @@ svg.leaflet-image-layer.leaflet-interactive path {
     var polylinesLayer = null;
     var polygonsLayer = null;
     var circlesLayer = null;
+    var rectanglesLayer = null;
     var userLocationMarker = null;
+    var currentHeading = null;
+    var appliedRotation = 0;
+    var autoHeadingTimer = null;
+    var autoHeadingStartTimer = null;
+    var courseHeadingActiveUntil = 0;
+    // Override manuel du suivi (méthode setFollowUser / stopLocate) :
+    // null = laisser config.userLocation.followUser décider.
+    var followUserForced = null;
     var markers = {};
     var polylines = {};
     var polygons = {};
     var circles = {};
+    var rectangles = {};
     var config = null;
     var isReady = false;
     var pendingCalls = [];
@@ -900,13 +924,15 @@ svg.leaflet-image-layer.leaflet-interactive path {
       });
 
       document.getElementById('map').style.background = cfg.backgroundColor || '#F8F9FA';
+      if (cfg.theme === 'dark') document.getElementById('map').classList.add('dark');
 
-      var tileConfig = cfg.tileLayer || TILE_PROVIDERS[cfg.tileProvider] || TILE_PROVIDERS['carto-light'] || TILE_PROVIDERS['osm-standard'];
+      var tileConfig = cfg.tileLayer || TILE_PROVIDERS[cfg.tileProvider] || TILE_PROVIDERS['osm-standard'];
       addTileLayer('base', tileConfig, true);
 
       polylinesLayer = L.layerGroup().addTo(map);
       polygonsLayer = L.layerGroup().addTo(map);
       circlesLayer = L.layerGroup().addTo(map);
+      rectanglesLayer = L.layerGroup().addTo(map);
 
       if (cfg.clustering) {
         var clusterConfig = typeof cfg.clustering === 'object' ? cfg.clustering : {};
@@ -916,13 +942,21 @@ svg.leaflet-image-layer.leaflet-interactive path {
           spiderfyOnMaxZoom: clusterConfig.spiderfyOnMaxZoom !== false,
           removeOutsideVisibleBounds: clusterConfig.removeOutsideVisibleBounds !== false,
           animateAddingMarkers: clusterConfig.animateAddingMarkers !== false,
-          disableClusteringAtZoom: clusterConfig.disableClusteringAtZoom,
+          disableClusteringAtZoom: typeof clusterConfig.disableClusteringAtZoom === 'number' && isFinite(clusterConfig.disableClusteringAtZoom) ? clusterConfig.disableClusteringAtZoom : null,
           maxClusterRadius: clusterConfig.maxClusterRadius || 50,
           iconCreateFunction: function(cluster) {
             var count = cluster.getChildCount();
             var size = count > 99 ? 44 : count > 9 ? 38 : 32;
+            var html;
+            if (typeof cfg.clusterIconHtml === 'string' && cfg.clusterIconHtml) {
+              // Token {count} : split/join (le remplacement est littéral,
+              // sans regex ni spécificateurs $ du String.replace).
+              html = cfg.clusterIconHtml.split('{count}').join(String(count));
+            } else {
+              html = '<div class="cluster-icon" style="width:' + size + 'px;height:' + size + 'px;">' + count + '</div>';
+            }
             return L.divIcon({
-              html: '<div class="cluster-icon" style="width:' + size + 'px;height:' + size + 'px;">' + count + '</div>',
+              html: html,
               className: 'cluster-div-icon',
               iconSize: [size, size]
             });
@@ -1042,10 +1076,19 @@ svg.leaflet-image-layer.leaflet-interactive path {
         case 'removePolygon': return removePolygon(args[0]);
         case 'addCircle': return addCircle(args[0]);
         case 'removeCircle': return removeCircle(args[0]);
+        case 'addRectangle': return addRectangle(args[0]);
+        case 'removeRectangle': return removeRectangle(args[0]);
         case 'openPopup': return openPopup(args[0]);
         case 'closePopup': return closePopup();
         case 'setTileLayer': return setTileLayer(args[0]);
         case 'toggleLayer': return toggleLayer(args[0], args[1]);
+        case 'updateView': return updateView(args[0]);
+        case 'setBackgroundColor': return setBackgroundColor(args[0]);
+        case 'setThemeClass': return setThemeClass(args[0]);
+        case 'updateUserLocationConfig': return updateUserLocationConfig(args[0]);
+        case 'clearUserLocation': return clearUserLocation();
+        case 'setHeading': return setHeading(args[0]);
+        case 'setUserLocation': return setUserLocation(args[0], args[1]);
         case 'locate': return locate();
         case 'stopLocate': return stopLocate();
         case 'redraw': return redraw();
@@ -1164,6 +1207,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
       m.markerId = marker.id;
       m.markerData = marker.data;
+      m.markerDataFull = marker;
 
       if (marker.popup) {
         m.bindPopup(marker.popup);
@@ -1171,10 +1215,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
       }
 
       m.on('click', function(e) {
+        // m.markerData (mis à jour par updateMarker) plutôt que la closure
+        // `marker.data` figée à la création : data fraîche à chaque clic.
         sendToRN('marker-press', {
-          markerId: marker.id,
+          markerId: m.markerId,
           position: { lat: e.latlng.lat, lng: e.latlng.lng },
-          data: marker.data,
+          data: m.markerData,
           sourceEvent: { latlng: { lat: e.latlng.lat, lng: e.latlng.lng }, type: 'click' }
         });
       });
@@ -1211,16 +1257,28 @@ svg.leaflet-image-layer.leaflet-interactive path {
       if (!m) return { success: false, error: 'Marker not found' };
       if (updates.position) m.setLatLng([updates.position.lat, updates.position.lng]);
       if (updates.iconHtml || updates.iconSize || updates.iconAnchor) {
-        var merged = Object.assign({}, m.options.icon ? {} : {}, updates);
+        var existing = m.markerDataFull || {};
+        var merged = Object.assign({}, existing, updates);
         m.setIcon(createMarkerIcon(merged));
       }
       if (updates.opacity !== undefined) m.setOpacity(updates.opacity);
       if (updates.zIndexOffset !== undefined) m.setZIndexOffset(updates.zIndexOffset);
+      if (updates.visible !== undefined) {
+        if (updates.visible) {
+          if (clusterLayer && m.getLatLng && !m._map && (m.markerDataFull || {}).cluster !== false) clusterLayer.addLayer(m);
+          else if (markersLayer && !m._map) markersLayer.addLayer(m);
+        } else if (m._map) {
+          if (clusterLayer) clusterLayer.removeLayer(m);
+          if (markersLayer) markersLayer.removeLayer(m);
+        }
+      }
+      if (updates.draggable !== undefined) m.dragging && m.dragging[updates.draggable ? 'enable' : 'disable']();
       if (updates.popup !== undefined) {
         m.unbindPopup();
         if (updates.popup) m.bindPopup(updates.popup);
       }
       if (updates.data !== undefined) m.markerData = updates.data;
+      m.markerDataFull = Object.assign({}, m.markerDataFull || {}, updates);
       return { success: true };
     }
 
@@ -1310,6 +1368,31 @@ svg.leaflet-image-layer.leaflet-interactive path {
       return { success: true };
     }
 
+    function addRectangle(rect) {
+      var r = L.rectangle([
+        [rect.bounds.southWest.lat, rect.bounds.southWest.lng],
+        [rect.bounds.northEast.lat, rect.bounds.northEast.lng]
+      ], {
+        color: rect.color || '#1A73E8',
+        fillColor: rect.fillColor || rect.color || '#1A73E8',
+        fillOpacity: rect.fillOpacity !== undefined ? rect.fillOpacity : 0.12,
+        weight: rect.weight || 1.5,
+        opacity: rect.opacity !== undefined ? rect.opacity : 1,
+        interactive: rect.interactive !== false
+      });
+      if (rect.interactive !== false) {
+        r.on('click', function() { sendToRN('event', { type: 'rectangle-click', id: rect.id }); });
+      }
+      rectanglesLayer.addLayer(r);
+      rectangles[rect.id] = r;
+      return { success: true };
+    }
+
+    function removeRectangle(id) {
+      if (rectangles[id]) { rectanglesLayer.removeLayer(rectangles[id]); delete rectangles[id]; }
+      return { success: true };
+    }
+
     function setTileLayer(provider) {
       var tileConfig = TILE_PROVIDERS[provider];
       if (!tileConfig) {
@@ -1328,69 +1411,285 @@ svg.leaflet-image-layer.leaflet-interactive path {
       return { success: true };
     }
 
+    // ---- Sync de config post-init (initMap est un no-op si déjà prêt) ----
+
+    // Vue : centre / zoom / bornes / scrollWheelZoom. nUpdate n'envoie QUE
+    // les champs changés (diff côté RN) ; on ne touche pas aux autres.
+    function updateView(v) {
+      if (!map || !v) return { success: false, error: 'Carte non initialisée' };
+      if (v.minZoom !== undefined && v.minZoom !== null) map.setMinZoom(v.minZoom);
+      if (v.maxZoom !== undefined && v.maxZoom !== null) map.setMaxZoom(v.maxZoom);
+      if (v.maxBounds !== undefined) {
+        if (v.maxBounds) {
+          map.setMaxBounds([
+            [v.maxBounds.southWest.lat, v.maxBounds.southWest.lng],
+            [v.maxBounds.northEast.lat, v.maxBounds.northEast.lng]
+          ]);
+        } else {
+          map.setMaxBounds(null);
+        }
+      }
+      if (v.scrollWheelZoom !== undefined) {
+        if (v.scrollWheelZoom) map.scrollWheelZoom.enable(); else map.scrollWheelZoom.disable();
+      }
+      var hasCenter = v.center && typeof v.center.lat === 'number';
+      if (hasCenter && v.zoom !== undefined) {
+        map.setView([v.center.lat, v.center.lng], v.zoom, { animate: true });
+      } else if (hasCenter) {
+        map.setView([v.center.lat, v.center.lng], map.getZoom(), { animate: true });
+      } else if (v.zoom !== undefined) {
+        map.setZoom(v.zoom, { animate: true });
+      }
+      return { success: true };
+    }
+
+    function setBackgroundColor(color) {
+      var el = document.getElementById('map');
+      if (el) el.style.background = color || '#F8F9FA';
+      return { success: true };
+    }
+
+    // Thème : bascule la classe .dark sur le conteneur (le mode sombre peut
+    // être activé après montage — le HTML embarque ses propres styles).
+    function setThemeClass(theme) {
+      var el = document.getElementById('map');
+      if (el) el.classList.toggle('dark', theme === 'dark');
+      return { success: true };
+    }
+
+    // (Ré)active le suivi de position après montage. opts suit
+    // UserLocationConfig (mockLocation injecté côté RN en __DEV__).
+    function updateUserLocationConfig(opts) {
+      if (!config) return { success: false, error: 'Carte non initialisée' };
+      config.userLocation = opts || false;
+      followUserForced = null; // la nouvelle config reprend la main sur l'override
+      startLocating(typeof opts === 'object' ? opts : {});
+      return { success: true };
+    }
+
+    // Supprime la pastille de position et stoppe la simulation de cap.
+    function clearUserLocation() {
+      if (config) config.userLocation = false;
+      followUserForced = null;
+      stopAutoHeading();
+      if (userLocationMarker && map) {
+        map.removeLayer(userLocationMarker);
+        userLocationMarker = null;
+      }
+      return { success: true };
+    }
+
+    function setFollowUser(on) {
+      followUserForced = on ? true : false;
+      return { success: true };
+    }
+
     function startLocating(opts) {
       if (opts.mockLocation) {
+        if (opts.mockHeading === 'auto') {
+          scheduleAutoHeading();
+        } else if (typeof opts.mockHeading === 'number' && !isNaN(opts.mockHeading)) {
+          stopAutoHeading();
+          currentHeading = opts.mockHeading;
+          applyHeadingRotation();
+        }
         var pos = { coords: { latitude: opts.mockLocation.lat, longitude: opts.mockLocation.lng, accuracy: 10 } };
         onUserLocation(pos, opts);
-        return;
       }
-      if (!navigator.geolocation) {
-        sendToRN('error', { message: 'Geolocation not available' });
-        return;
+      // Hors mode mock, la position réelle est injectée par React Native via
+      // la méthode setUserLocation (expo-location en production) : rien à
+      // faire ici, la pastille apparaîtra au premier push RN.
+    }
+
+    function applyHeadingRotation() {
+      // Rotation continue non bornée : on applique toujours le déplacement le
+      // plus court vers la cible, sinon une transition CSS traversant 0/360
+      // repartirait à reculons sur ~358° (d'où les à-coups perçus).
+      var target = (currentHeading !== null && currentHeading !== undefined) ? currentHeading : 0;
+      var delta = ((target - (appliedRotation % 360)) + 540) % 360 - 180;
+      appliedRotation += delta;
+      var cone = document.getElementById('user-heading-cone');
+      if (cone) {
+        cone.style.display = 'block';
+        cone.style.transform = 'rotate(' + appliedRotation + 'deg)';
       }
-      navigator.geolocation.getCurrentPosition(
-        function(pos) { onUserLocation(pos, opts); },
-        function(err) { sendToRN('error', { message: 'Geolocation error: ' + err.message }); },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
+    }
+
+    function stopAutoHeading() {
+      if (autoHeadingTimer) {
+        clearInterval(autoHeadingTimer);
+        autoHeadingTimer = null;
+      }
+      if (autoHeadingStartTimer) {
+        clearTimeout(autoHeadingStartTimer);
+        autoHeadingStartTimer = null;
+      }
+    }
+
+    // Simulation de cap (dev, sans magnétomètre) : démarrage différé pour
+    // laisser un éventuelle vraie boussole prendre la main en premier
+    // (aucun spin parasite sur téléphone réel ; l'émulateur tourne après 1 s).
+    function scheduleAutoHeading() {
+      stopAutoHeading();
+      autoHeadingStartTimer = setTimeout(function() {
+        autoHeadingStartTimer = null;
+        startAutoHeading();
+      }, 1000);
+    }
+
+    // Simulation de cap (dev, sans magnétomètre) : rotation lente continue.
+    // Un tour complet toutes les ~12 secondes.
+    function startAutoHeading() {
+      stopAutoHeading();
+      autoHeadingTimer = setInterval(function() {
+        currentHeading = ((currentHeading !== null && currentHeading !== undefined) ? currentHeading : 0) + 3;
+        if (currentHeading >= 360) currentHeading -= 360;
+        applyHeadingRotation();
+      }, 100);
+    }
+
+    function setHeading(heading) {
+      var hasValue = heading !== null && heading !== undefined && !isNaN(heading);
+      // Cap GPS récent (appareil en déplacement) : prioritaire sur le magnétomètre
+      if (Date.now() < courseHeadingActiveUntil) {
+        return { success: true };
+      }
+      if (hasValue) {
+        // Vraie valeur (magnétomètre / cap GPS) : reprendre la main sur la simulation
+        stopAutoHeading();
+        currentHeading = heading;
+        applyHeadingRotation();
+      } else {
+        // Cap désactivé (null explicite) : annuler la simulation éventuelle.
+        // RN n'envoie null que lorsque la boussole est désactivée ; tant qu'elle
+        // est active il attend un vrai cap avant d'émettre.
+        stopAutoHeading();
+        currentHeading = 0;
+        applyHeadingRotation();
+      }
+      return { success: true };
     }
 
     function onUserLocation(pos, opts) {
       var latlng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       var accuracy = pos.coords.accuracy || 0;
 
+      // Cap GPS (course over ground) : direction réelle du déplacement
+      var gpsHeading = pos.coords.heading;
+      if (typeof gpsHeading === 'number' && !isNaN(gpsHeading) && gpsHeading >= 0 &&
+          (pos.coords.speed || 0) > 0.5 && opts.mockHeading === undefined) {
+        currentHeading = gpsHeading;
+        courseHeadingActiveUntil = Date.now() + 1200;
+        applyHeadingRotation();
+      }
+
       if (userLocationMarker) {
         userLocationMarker.setLatLng([latlng.lat, latlng.lng]);
       } else {
+        // appliedRotation est déjà synchronisé avec currentHeading (tous les
+        // chemins qui modifient currentHeading passent par applyHeadingRotation).
+        var headingStyle = 'display: block; transform: rotate(' + appliedRotation + 'deg);';
         var icon = L.divIcon({
           className: 'user-location-marker',
-          html: '<div class="user-location-pulse"></div>',
+          html: '<div style="position:relative; width:24px; height:24px; display:flex; align-items:center; justify-content:center;">' +
+                '<div class="user-location-pulse"></div>' +
+                '<svg id="user-heading-cone" viewBox="0 0 200 200" style="position: absolute; width: 120px; height: 120px; top: -48px; left: -48px; pointer-events: none; transform-origin: 50% 50%; transition: transform 0.1s linear; ' + headingStyle + '">' +
+                '<defs>' +
+                '<filter id="arrowShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0B3E8F" flood-opacity="0.45"/></filter>' +
+                '</defs>' +
+                '<path d="M 100 100 L 56.4 14.5 A 96 96 0 0 1 143.6 14.5 Z" fill="#1A73E8" fill-opacity="0.30" stroke="#1A73E8" stroke-opacity="0.55" stroke-width="2.5" stroke-linejoin="round"/>' +
+                '<polygon points="100,28 112,52 100,45 88,52" fill="#FFFFFF" stroke="#1A73E8" stroke-width="3.5" stroke-linejoin="round" filter="url(#arrowShadow)"/>' +
+                '</svg>' +
+                '</div>',
           iconSize: [24, 24],
           iconAnchor: [12, 12]
         });
         userLocationMarker = L.marker([latlng.lat, latlng.lng], { icon: icon, zIndexOffset: 1000 }).addTo(map);
       }
 
-      if (opts.followUser) {
+      // followUserForced (setFollowUser / stopLocate) a priorité sur la config.
+      var follow = followUserForced !== null ? followUserForced : !!opts.followUser;
+      if (follow) {
         map.panTo([latlng.lat, latlng.lng], { animate: true });
       }
-      sendToRN('user-location', { location: latlng, accuracy: accuracy });
+      sendToRN('user-location', {
+        location: latlng,
+        accuracy: accuracy,
+        heading: (currentHeading !== null && currentHeading !== undefined) ? currentHeading : null
+      });
+    }
+
+    // Position réelle injectée par React Native (expo-location, production).
+    // Repasse par onUserLocation pour réutiliser marqueur, followUser, course
+    // GPS et l'événement user-location. optsOverride permet un suivi ponctuel
+    // (locate) sans muter config.userLocation.
+    function setUserLocation(loc, optsOverride) {
+      if (!loc || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') {
+        return { success: false, error: 'Position invalide' };
+      }
+      var opts = optsOverride ||
+        ((config && typeof config.userLocation === 'object') ? config.userLocation : {});
+      var pos = {
+        coords: {
+          latitude: loc.lat,
+          longitude: loc.lng,
+          accuracy: typeof loc.accuracy === 'number' ? loc.accuracy : 0,
+          heading: typeof loc.heading === 'number' ? loc.heading : undefined,
+          speed: typeof loc.speed === 'number' ? loc.speed : undefined
+        }
+      };
+      onUserLocation(pos, opts);
+      return { success: true };
     }
 
     function locate() {
+      // Une localisation ré-active l'override de suivi : la config décide à
+      // nouveau (stopLocate avait figé followUserForced à false).
+      followUserForced = null;
       if (userLocationMarker) {
         map.panTo(userLocationMarker.getLatLng(), { animate: true });
       } else if (config && config.userLocation) {
         var opts = typeof config.userLocation === 'object' ? config.userLocation : {};
         startLocating(Object.assign({}, opts, { followUser: true }));
       } else {
-        startLocating({ followUser: true });
+        // Pas de userLocation configuré : RN injectera la position (MapRef.locate
+        // → getFixOnce + setUserLocation avec followUser ponctuel).
+        return { success: true, needsRnFetch: true };
       }
       return { success: true };
     }
-    function stopLocate() { return { success: true }; }
+
+    function stopLocate() {
+      // Stoppe le suivi (la pastille reste visible).
+      followUserForced = false;
+      if (config && typeof config.userLocation === 'object') {
+        config.userLocation = Object.assign({}, config.userLocation, { followUser: false });
+      }
+      return { success: true };
+    }
     function redraw() { setTimeout(function() { map.invalidateSize(); }, 100); }
     function clearAll() {
       clearMarkers();
       if (polylinesLayer) polylinesLayer.clearLayers();
       if (polygonsLayer) polygonsLayer.clearLayers();
       if (circlesLayer) circlesLayer.clearLayers();
+      if (rectanglesLayer) rectanglesLayer.clearLayers();
+      rectangles = {};
       return { success: true };
     }
 
     setTimeout(function() {
       sendToRN('webview-ready', {});
     }, 10);
+
+    // Remonter les erreurs JS de la WebView à RN (sinon elles sont silencieuses)
+    window.addEventListener('error', function(event) {
+      sendToRN('error', { message: 'Erreur JS: ' + (event.message || 'inconnue') + (event.filename ? ' @ ' + event.filename + ':' + event.lineno : '') });
+    });
+    window.addEventListener('unhandledrejection', function(event) {
+      var reason = event.reason;
+      sendToRN('error', { message: 'Promesse rejetée: ' + (reason && reason.message ? reason.message : String(reason)) });
+    });
 
   </script>
 </body>

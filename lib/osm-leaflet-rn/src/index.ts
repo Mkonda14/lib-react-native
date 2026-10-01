@@ -29,7 +29,7 @@
  *         config={{
  *           center: { lat: 48.8566, lng: 2.3522 },
  *           zoom: 13,
- *           tileProvider: 'carto-light',
+ *           tileProvider: 'osm-standard',
  *         }}
  *         markers={[
  *           { id: 'paris', position: { lat: 48.8566, lng: 2.3522 }, data: { name: 'Paris' } },
@@ -48,12 +48,17 @@
 export { MapView } from './map-view'
 
 // BottomSheet — modal glissable pour les détails (exporté aussi pour usage seul)
-export { BottomSheet } from './bottom-sheet'
+// LayerPickerPopover — sélecteur de fond de carte en grille 3 colonnes
+export { BottomSheet, LayerPickerPopover } from './bottom-sheet'
 
 // Contrôles de carte + barre de recherche Google
 export { MapControls } from './components/map-controls'
 export { GoogleSearchBar, GOOGLE_CATEGORIES } from './components/google-search-bar'
-export type { CategoryChip } from './components/google-search-bar'
+export type {
+  CategoryChip,
+  GoogleSearchBarProps,
+  GoogleSearchBarFocusContext,
+} from './components/google-search-bar'
 
 // Configuration + préréglages (fournisseurs de tuiles, icônes de marqueurs)
 export {
@@ -61,15 +66,28 @@ export {
   DEFAULT_CONFIG,
   DEFAULT_CLUSTER_CONFIG,
   DEFAULT_USER_LOCATION_CONFIG,
+  DEFAULT_LOCATION,
   MARKER_PRESETS,
   getMarkerIconHtml,
   getThemedConfig,
 } from './config'
 
+// Variantes de marqueurs (icônes POI par catégorie : pharmacy, hospital…)
+export { MARKER_VARIANTS, getVariantIconHtml, resolveMarkerVariant } from './marker-variants'
+export type { MarkerVariant, MarkerVariantDef } from './marker-variants'
+
 // Hooks React pour interagir avec la carte
 export { useMap } from './hooks/use-map'
 export { useMapEvents } from './hooks/use-map-events'
 export { useMarkers } from './hooks/use-markers'
+export { useHeading } from './hooks/use-heading'
+export type { UseHeadingOptions, UseHeadingResult } from './hooks/use-heading'
+export { useUserLocation, getFixOnce } from './hooks/use-user-location'
+export type {
+  UseUserLocationOptions,
+  UseUserLocationResult,
+  UserLocationFix,
+} from './hooks/use-user-location'
 
 // Utilitaires géographiques purs (distance, bounds, polylines, etc.)
 export {
@@ -118,6 +136,7 @@ export type {
   MapRef,
   MapViewProps,
   BottomSheetProps,
+  LayerPickerPopoverProps,
   BridgeMessage,
   BridgeMessageType,
   MethodCall,

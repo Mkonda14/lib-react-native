@@ -33,6 +33,8 @@ export class MapBridge {
   private pending = new Map<string, MethodCall>()
   /** Vrai quand la WebView a envoyé 'ready'. */
   private ready = false
+  /** Vrai après dispose() : plus aucun envoi ni routage. */
+  private disposed = false
   /** Promesse résolue quand le bridge est prêt (permet de mise en file les appels). */
   private readyPromise: Promise<void>
   private readyResolve!: () => void
@@ -54,6 +56,32 @@ export class MapBridge {
     this.readyPromise = new Promise((resolve) => {
       this.readyResolve = resolve
     })
+  }
+
+  /**
+   * Libérer le bridge au démontage : rejette les appels en attente, vide les
+   * handlers et neutralise handleMessage/send (un message en vol ne doit pas
+   * retenir la WebView ni appeler des callbacks d'un composant démonté).
+   */
+  dispose() {
+    if (this.disposed) return
+    this.disposed = true
+    for (const call of this.pending.values()) {
+      call.reject?.(new Error('Bridge démonté avant la fin de la méthode'))
+    }
+    this.pending.clear()
+    this.onEvent = undefined
+    this.onMarkerPress = undefined
+    this.onMarkerDrag = undefined
+    this.onUserLocation = undefined
+    this.onReady = undefined
+    this.onWebViewReady = undefined
+    this.onError = undefined
+    this.onLog = undefined
+    // Débloque les appels mis en file avant le dispose : ils passeront dans
+    // send() neutralisé puis expireront proprement via leur timeout.
+    this.ready = true
+    this.readyResolve()
   }
 
   /**
@@ -89,6 +117,9 @@ export class MapBridge {
    * @returns Promesse résolue avec le résultat ou rejetée en cas d'erreur
    */
   call<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+    if (this.disposed) {
+      return Promise.reject(new Error(`Bridge démonté (méthode "${method}")`))
+    }
     return this.readyPromise.then(() => {
       return new Promise<T>((resolve, reject) => {
         const id = uniqueId('call')
@@ -120,6 +151,7 @@ export class MapBridge {
    * @param rawData - Chaîne JSON reçue depuis la WebView
    */
   handleMessage(rawData: string) {
+    if (this.disposed) return
     let msg: BridgeMessage
     try {
       msg = JSON.parse(rawData)
@@ -198,6 +230,7 @@ export class MapBridge {
    * @param payload - Données du message
    */
   private send(type: string, payload?: unknown) {
+    if (this.disposed) return
     const msg = JSON.stringify({ type, payload })
     this.postMessage(msg)
   }

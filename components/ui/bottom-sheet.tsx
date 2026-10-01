@@ -217,6 +217,7 @@ export function BottomSheet({
     translateY.value = withSpring(0, SPRING_CONFIG);
     opacity.value = withTiming(0, { duration: 200 }, (finished) => {
       if (finished) {
+        runOnJS(setModalVisible)(false);
         runOnJS(onClose)();
       }
     });
